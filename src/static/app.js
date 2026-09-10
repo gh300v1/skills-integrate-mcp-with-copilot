@@ -3,6 +3,122 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const authForms = document.getElementById("auth-forms");
+  const registerForm = document.getElementById("register-form");
+  const loginForm = document.getElementById("login-form");
+  const verifyForm = document.getElementById("verify-form");
+  const logoutButton = document.getElementById("logout-button");
+  const accountStatus = document.getElementById("account-status");
+  const authMessage = document.getElementById("auth-message");
+  const signupAccountNote = document.getElementById("signup-account-note");
+
+  let currentUser = null;
+
+  function showAuthMessage(message, className = "info") {
+    authMessage.textContent = message;
+    authMessage.className = className;
+  }
+
+  function updateAccountView(user) {
+    currentUser = user;
+    const loggedIn = Boolean(user);
+    authForms.classList.toggle("hidden", loggedIn);
+    logoutButton.classList.toggle("hidden", !loggedIn);
+    accountStatus.classList.toggle("hidden", !loggedIn);
+    verifyForm.classList.toggle("hidden", !loggedIn || user.email_verified);
+    signupAccountNote.textContent = loggedIn
+      ? `Signed in as ${user.email} (${user.school})`
+      : "Log in to sign up for an activity.";
+    signupForm.querySelector("button[type=submit]").disabled = !loggedIn;
+
+    if (loggedIn) {
+      accountStatus.textContent = `${user.full_name} | ${user.grade_level} | ${user.school}`;
+      if (!user.email_verified) {
+        showAuthMessage("Verify your email before managing organizations.", "info");
+      }
+    }
+  }
+
+  async function sendAuthRequest(url, options) {
+    const response = await fetch(url, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.detail || "Authentication request failed");
+    }
+    return result;
+  }
+
+  async function loadCurrentUser() {
+    const response = await fetch("/auth/me");
+    if (response.ok) {
+      updateAccountView(await response.json());
+    } else {
+      updateAccountView(null);
+    }
+  }
+
+  registerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const result = await sendAuthRequest("/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          full_name: document.getElementById("full-name").value,
+          grade_level: document.getElementById("grade-level").value,
+          email: document.getElementById("register-email").value,
+          password: document.getElementById("register-password").value,
+        }),
+      });
+      updateAccountView(result.user);
+      document.getElementById("verification-token").value = result.verification_token;
+      showAuthMessage(result.message, "success");
+      registerForm.reset();
+    } catch (error) {
+      showAuthMessage(error.message, "error");
+    }
+  });
+
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const result = await sendAuthRequest("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: document.getElementById("login-email").value,
+          password: document.getElementById("login-password").value,
+        }),
+      });
+      updateAccountView(result.user);
+      showAuthMessage(result.message, "success");
+      loginForm.reset();
+    } catch (error) {
+      showAuthMessage(error.message, "error");
+    }
+  });
+
+  verifyForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const result = await sendAuthRequest("/auth/verify-email", {
+        method: "POST",
+        body: JSON.stringify({ token: document.getElementById("verification-token").value }),
+      });
+      updateAccountView(result.user);
+      showAuthMessage(result.message, "success");
+      verifyForm.reset();
+    } catch (error) {
+      showAuthMessage(error.message, "error");
+    }
+  });
+
+  logoutButton.addEventListener("click", async () => {
+    await fetch("/auth/logout", { method: "POST" });
+    updateAccountView(null);
+    showAuthMessage("Logged out successfully", "success");
+  });
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -71,13 +187,9 @@ document.addEventListener("DOMContentLoaded", () => {
   async function handleUnregister(event) {
     const button = event.target;
     const activity = button.getAttribute("data-activity");
-    const email = button.getAttribute("data-email");
-
     try {
       const response = await fetch(
-        `/activities/${encodeURIComponent(
-          activity
-        )}/unregister?email=${encodeURIComponent(email)}`,
+        `/activities/${encodeURIComponent(activity)}/unregister`,
         {
           method: "DELETE",
         }
@@ -114,14 +226,11 @@ document.addEventListener("DOMContentLoaded", () => {
   signupForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    const email = document.getElementById("email").value;
     const activity = document.getElementById("activity").value;
 
     try {
       const response = await fetch(
-        `/activities/${encodeURIComponent(
-          activity
-        )}/signup?email=${encodeURIComponent(email)}`,
+        `/activities/${encodeURIComponent(activity)}/signup`,
         {
           method: "POST",
         }
@@ -156,5 +265,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Initialize app
+  loadCurrentUser();
   fetchActivities();
 });
